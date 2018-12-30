@@ -139,7 +139,7 @@ static const MP4_ELEMENT_ID channel_configuration_13[] = {
     ID_SCE, ID_CPE, ID_CPE, ID_CPE, ID_CPE, ID_SCE, ID_LFE, ID_LFE, ID_SCE,
     ID_CPE, ID_CPE, ID_SCE, ID_CPE, ID_SCE, ID_SCE, ID_CPE, ID_NONE};
 static const MP4_ELEMENT_ID channel_configuration_14[] = {
-    ID_SCE, ID_CPE, ID_CPE, ID_LAST, ID_CPE, ID_NONE};
+    ID_SCE, ID_CPE, ID_CPE, ID_LFE, ID_CPE, ID_NONE};
 
 static const MP4_ELEMENT_ID *channel_configuration_array[] = {
     channel_configuration_0,  channel_configuration_1,
@@ -467,6 +467,7 @@ void CProgramConfig_GetDefault(CProgramConfig *pPce, const UINT channelConfig) {
       pPce->BackElementIsCpe[1] = 1;
       pPce->NumChannels += 1;
       pPce->NumEffectiveChannels += 1;
+      FDK_FALLTHROUGH;
     case 11: /* 3/0/3.1ch */
       pPce->NumFrontChannelElements += 2;
       pPce->FrontElementIsCpe[0] = 0;
@@ -482,25 +483,30 @@ void CProgramConfig_GetDefault(CProgramConfig *pPce, const UINT channelConfig) {
     /* - - - - - - - - - - - - - - - - - - - - - - - - - - - - */
     case 14:                               /* 2/0/0-3/0/2-0.1ch front height */
       pPce->FrontElementHeightInfo[2] = 1; /* Top speaker */
-    case 7:                                /* 5/0/2.1ch front */
+      FDK_FALLTHROUGH;
+    case 7: /* 5/0/2.1ch front */
       pPce->NumFrontChannelElements += 1;
       pPce->FrontElementIsCpe[2] = 1;
       pPce->NumChannels += 2;
       pPce->NumEffectiveChannels += 2;
+      FDK_FALLTHROUGH;
     case 6: /* 3/0/2.1ch */
       pPce->NumLfeChannelElements += 1;
       pPce->NumChannels += 1;
+      FDK_FALLTHROUGH;
     case 5: /* 3/0/2.0ch */
     case 4: /* 3/0/1.0ch */
       pPce->NumBackChannelElements += 1;
       pPce->BackElementIsCpe[0] = (channelConfig > 4) ? 1 : 0;
       pPce->NumChannels += (channelConfig > 4) ? 2 : 1;
       pPce->NumEffectiveChannels += (channelConfig > 4) ? 2 : 1;
+      FDK_FALLTHROUGH;
     case 3: /* 3/0/0.0ch */
       pPce->NumFrontChannelElements += 1;
       pPce->FrontElementIsCpe[1] = 1;
       pPce->NumChannels += 2;
       pPce->NumEffectiveChannels += 2;
+      FDK_FALLTHROUGH;
     case 1: /* 1/0/0.0ch */
       pPce->NumFrontChannelElements += 1;
       pPce->FrontElementIsCpe[0] = 0;
@@ -713,6 +719,7 @@ int CProgramConfig_LookupElement(CProgramConfig *pPce, UINT channelConfig,
       switch (elType) {
         case ID_CPE:
           isCpe = 1;
+          FDK_FALLTHROUGH;
         case ID_SCE:
           /* search in front channels */
           for (i = 0; i < pPce->NumFrontChannelElements; i++) {
@@ -1293,7 +1300,11 @@ static INT ld_sbr_header(CSAudioSpecificConfig *asc, const INT dsFactor,
   /* read elements of the passed channel_configuration until there is ID_NONE */
   while ((element = channel_configuration_array[channelConfiguration][j]) !=
          ID_NONE) {
-    if (element == ID_SCE || element == ID_CPE) {
+    /* Setup LFE element for upsampling too. This is essential especially for
+     * channel configs where the LFE element is not at the last position for
+     * example in channel config 13 or 14. It leads to memory leaks if the setup
+     * of the LFE element would be done later in the core. */
+    if (element == ID_SCE || element == ID_CPE || element == ID_LFE) {
       error |= cb->cbSbr(
           cb->cbSbrData, hBs, asc->m_samplingFrequency / dsFactor,
           asc->m_extensionSamplingFrequency / dsFactor,
@@ -1412,7 +1423,7 @@ static TRANSPORTDEC_ERROR EldSpecificConfig_Parse(CSAudioSpecificConfig *asc,
           break;
         }
 
-      /* fall-through */
+        FDK_FALLTHROUGH;
       default:
         for (cnt = 0; cnt < eldExtLen; cnt++) {
           FDKreadBits(hBs, 8);
@@ -2022,6 +2033,7 @@ static TRANSPORTDEC_ERROR AudioSpecificConfig_ExtensionParse(
         break;
       case ASCEXT_MPS: /* 0x76a */
         if (self->m_extensionAudioObjectType == AOT_MPEGS) break;
+        FDK_FALLTHROUGH;
       case ASCEXT_LDMPS: /* 0x7cc */
         if ((ascExtId == ASCEXT_LDMPS) &&
             (self->m_extensionAudioObjectType == AOT_LD_MPEGS))
@@ -2498,6 +2510,7 @@ TRANSPORTDEC_ERROR DrmRawSdcAudioConfig_Parse(
         switch (audioMode) {
           case 1: /* parametric stereo */
             self->m_psPresentFlag = 1;
+            FDK_FALLTHROUGH;
           case 0: /* mono */
             self->m_channelConfiguration = 1;
             break;
