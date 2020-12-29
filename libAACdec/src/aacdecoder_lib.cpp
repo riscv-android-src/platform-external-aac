@@ -385,21 +385,19 @@ static INT aacDecoder_SbrCallback(
   return errTp;
 }
 
-static INT aacDecoder_SscCallback(void *handle, HANDLE_FDK_BITSTREAM hBs,
-                                  const AUDIO_OBJECT_TYPE coreCodec,
-                                  const INT samplingRate, const INT frameSize,
-                                  const INT stereoConfigIndex,
-                                  const INT coreSbrFrameLengthIndex,
-                                  const INT configBytes, const UCHAR configMode,
-                                  UCHAR *configChanged) {
+static INT aacDecoder_SscCallback(
+    void *handle, HANDLE_FDK_BITSTREAM hBs, const AUDIO_OBJECT_TYPE coreCodec,
+    const INT samplingRate, const INT frameSize, const INT numChannels,
+    const INT stereoConfigIndex, const INT coreSbrFrameLengthIndex,
+    const INT configBytes, const UCHAR configMode, UCHAR *configChanged) {
   SACDEC_ERROR err;
   TRANSPORTDEC_ERROR errTp;
   HANDLE_AACDECODER hAacDecoder = (HANDLE_AACDECODER)handle;
 
   err = mpegSurroundDecoder_Config(
       (CMpegSurroundDecoder *)hAacDecoder->pMpegSurroundDecoder, hBs, coreCodec,
-      samplingRate, frameSize, stereoConfigIndex, coreSbrFrameLengthIndex,
-      configBytes, configMode, configChanged);
+      samplingRate, frameSize, numChannels, stereoConfigIndex,
+      coreSbrFrameLengthIndex, configBytes, configMode, configChanged);
 
   switch (err) {
     case MPS_UNSUPPORTED_CONFIG:
@@ -822,6 +820,9 @@ LINKSPEC_CPP AAC_DECODER_ERROR aacDecoder_SetParam(
 
     case AAC_DRC_ATTENUATION_FACTOR:
       /* DRC compression factor (where 0 is no and 127 is max compression) */
+      if ((value < 0) || (value > 127)) {
+        return AAC_DEC_SET_PARAM_FAIL;
+      }
       errorStatus = aacDecoder_drcSetParam(hDrcInfo, DRC_CUT_SCALE, value);
       uniDrcErr = FDK_drcDec_SetParam(self->hUniDrcDecoder, DRC_DEC_COMPRESS,
                                       value * (FL2FXCONST_DBL(0.5f / 127.0f)));
@@ -829,6 +830,9 @@ LINKSPEC_CPP AAC_DECODER_ERROR aacDecoder_SetParam(
 
     case AAC_DRC_BOOST_FACTOR:
       /* DRC boost factor (where 0 is no and 127 is max boost) */
+      if ((value < 0) || (value > 127)) {
+        return AAC_DEC_SET_PARAM_FAIL;
+      }
       errorStatus = aacDecoder_drcSetParam(hDrcInfo, DRC_BOOST_SCALE, value);
       uniDrcErr = FDK_drcDec_SetParam(self->hUniDrcDecoder, DRC_DEC_BOOST,
                                       value * (FL2FXCONST_DBL(0.5f / 127.0f)));
@@ -1173,8 +1177,10 @@ LINKSPEC_CPP AAC_DECODER_ERROR aacDecoder_DecodeFrame(HANDLE_AACDECODER self,
       aacDecoder_FreeMemCallback(self, &asc);
       self->streamInfo.numChannels = 0;
       /* 3) restore AudioSpecificConfig */
-      transportDec_OutOfBandConfig(self->hInput, asc.config,
-                                   (asc.configBits + 7) >> 3, 0);
+      if (asc.configBits <= (TP_USAC_MAX_CONFIG_LEN << 3)) {
+        transportDec_OutOfBandConfig(self->hInput, asc.config,
+                                     (asc.configBits + 7) >> 3, 0);
+      }
     }
   }
 
