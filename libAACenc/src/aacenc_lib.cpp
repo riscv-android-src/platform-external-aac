@@ -1784,8 +1784,8 @@ AACENC_ERROR aacEncEncode(const HANDLE_AACENCODER hAacEncoder,
                                                    hAacEncoder->nSamplesRead));
     INT_PCM *pIn =
         hAacEncoder->inputBuffer +
-        (hAacEncoder->inputBufferOffset + hAacEncoder->nSamplesRead) /
-            hAacEncoder->aacConfig.nChannels;
+        hAacEncoder->inputBufferOffset / hAacEncoder->aacConfig.nChannels +
+        hAacEncoder->nSamplesRead / hAacEncoder->extParam.nChannels;
     newSamples -=
         (newSamples %
          hAacEncoder->extParam
@@ -1827,12 +1827,13 @@ AACENC_ERROR aacEncEncode(const HANDLE_AACENCODER hAacEncoder,
 
         /* clear out until end-of-buffer */
         if (nZeros) {
+          INT_PCM *pIn =
+              hAacEncoder->inputBuffer +
+              hAacEncoder->inputBufferOffset /
+                  hAacEncoder->aacConfig.nChannels +
+              hAacEncoder->nSamplesRead / hAacEncoder->extParam.nChannels;
           for (i = 0; i < (int)hAacEncoder->extParam.nChannels; i++) {
-            FDKmemclear(hAacEncoder->inputBuffer +
-                            i * hAacEncoder->inputBufferSizePerChannel +
-                            (hAacEncoder->inputBufferOffset +
-                             hAacEncoder->nSamplesRead) /
-                                hAacEncoder->extParam.nChannels,
+            FDKmemclear(pIn + i * hAacEncoder->inputBufferSizePerChannel,
                         sizeof(INT_PCM) * nZeros);
           }
           hAacEncoder->nZerosAppended += nZeros;
