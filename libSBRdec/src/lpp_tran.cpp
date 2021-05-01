@@ -1,7 +1,7 @@
 /* -----------------------------------------------------------------------------
 Software License for The Fraunhofer FDK AAC Codec Library for Android
 
-© Copyright  1995 - 2019 Fraunhofer-Gesellschaft zur Förderung der angewandten
+© Copyright  1995 - 2020 Fraunhofer-Gesellschaft zur Förderung der angewandten
 Forschung e.V. All rights reserved.
 
  1.    INTRODUCTION
@@ -132,10 +132,6 @@ amm-info@iis.fraunhofer.de
 
 #include "HFgen_preFlat.h"
 
-#if defined(__arm__)
-#include "arm/lpp_tran_arm.cpp"
-#endif
-
 #define LPC_SCALE_FACTOR 2
 
 /*!
@@ -220,19 +216,21 @@ static inline void calc_qmfBufferReal(FIXP_DBL **qmfBufferReal,
                                       const FIXP_DBL *const lowBandReal,
                                       const int startSample,
                                       const int stopSample, const UCHAR hiBand,
-                                      const int dynamicScale, const int descale,
+                                      const int dynamicScale,
                                       const FIXP_SGL a0r, const FIXP_SGL a1r) {
-  FIXP_DBL accu1, accu2;
-  int i;
+  const int dynscale = fixMax(0, dynamicScale - 1) + 1;
+  const int rescale = -fixMin(0, dynamicScale - 1) + 1;
+  const int descale =
+      fixMin(DFRACT_BITS - 1, LPC_SCALE_FACTOR + dynamicScale + rescale);
 
-  for (i = 0; i < stopSample - startSample; i++) {
-    accu1 = fMultDiv2(a1r, lowBandReal[i]);
-    accu1 = (fMultDiv2(a0r, lowBandReal[i + 1]) + accu1);
-    accu1 = accu1 >> dynamicScale;
+  for (int i = 0; i < stopSample - startSample; i++) {
+    FIXP_DBL accu;
 
-    accu1 <<= 1;
-    accu2 = (lowBandReal[i + 2] >> descale);
-    qmfBufferReal[i + startSample][hiBand] = accu1 + accu2;
+    accu = fMultDiv2(a1r, lowBandReal[i]) + fMultDiv2(a0r, lowBandReal[i + 1]);
+    accu = (lowBandReal[i + 2] >> descale) + (accu >> dynscale);
+
+    qmfBufferReal[i + startSample][hiBand] =
+        SATURATE_LEFT_SHIFT(accu, rescale, DFRACT_BITS);
   }
 }
 
@@ -771,52 +769,50 @@ void lppTransposer(
       } else { /* bw <= 0 */
 
         if (!useLP) {
-          int descale =
-              fixMin(DFRACT_BITS - 1, (LPC_SCALE_FACTOR + dynamicScale));
-#ifdef FUNCTION_LPPTRANSPOSER_func1
-          lppTransposer_func1(
-              lowBandReal + LPC_ORDER + startSample,
-              lowBandImag + LPC_ORDER + startSample,
-              qmfBufferReal + startSample, qmfBufferImag + startSample,
-              stopSample - startSample, (int)hiBand, dynamicScale, descale, a0r,
-              a0i, a1r, a1i, fPreWhitening, preWhiteningGains[loBand],
-              preWhiteningGains_exp[loBand] + 1);
-#else
+          const int dynscale = fixMax(0, dynamicScale - 2) + 1;
+          const int rescale = -fixMin(0, dynamicScale - 2) + 1;
+          const int descale = fixMin(DFRACT_BITS - 1,
+                                     LPC_SCALE_FACTOR + dynamicScale + rescale);
+
           for (i = startSample; i < stopSample; i++) {
             FIXP_DBL accu1, accu2;
 
-            accu1 = (fMultDiv2(a0r, lowBandReal[LPC_ORDER + i - 1]) -
-                     fMultDiv2(a0i, lowBandImag[LPC_ORDER + i - 1]) +
-                     fMultDiv2(a1r, lowBandReal[LPC_ORDER + i - 2]) -
-                     fMultDiv2(a1i, lowBandImag[LPC_ORDER + i - 2])) >>
-                    dynamicScale;
-            accu2 = (fMultDiv2(a0i, lowBandReal[LPC_ORDER + i - 1]) +
-                     fMultDiv2(a0r, lowBandImag[LPC_ORDER + i - 1]) +
-                     fMultDiv2(a1i, lowBandReal[LPC_ORDER + i - 2]) +
-                     fMultDiv2(a1r, lowBandImag[LPC_ORDER + i - 2])) >>
-                    dynamicScale;
+            accu1 = ((fMultDiv2(a0r, lowBandReal[LPC_ORDER + i - 1]) -
+                      fMultDiv2(a0i, lowBandImag[LPC_ORDER + i - 1])) >>
+                     1) +
+                    ((fMultDiv2(a1r, lowBandReal[LPC_ORDER + i - 2]) -
+                      fMultDiv2(a1i, lowBandImag[LPC_ORDER + i - 2])) >>
+                     1);
+            accu2 = ((fMultDiv2(a0i, lowBandReal[LPC_ORDER + i - 1]) +
+                      fMultDiv2(a0r, lowBandImag[LPC_ORDER + i - 1])) >>
+                     1) +
+                    ((fMultDiv2(a1i, lowBandReal[LPC_ORDER + i - 2]) +
+                      fMultDiv2(a1r, lowBandImag[LPC_ORDER + i - 2])) >>
+                     1);
 
-            accu1 = (lowBandReal[LPC_ORDER + i] >> descale) + (accu1 << 1);
-            accu2 = (lowBandImag[LPC_ORDER + i] >> descale) + (accu2 << 1);
+            accu1 =
+                (lowBandReal[LPC_ORDER + i] >> descale) + (accu1 >> dynscale);
+            accu2 =
+                (lowBandImag[LPC_ORDER + i] >> descale) + (accu2 >> dynscale);
             if (fPreWhitening) {
-              accu1 = scaleValueSaturate(
+              qmfBufferReal[i][hiBand] = scaleValueSaturate(
                   fMultDiv2(accu1, preWhiteningGains[loBand]),
-                  preWhiteningGains_exp[loBand] + 1);
-              accu2 = scaleValueSaturate(
+                  preWhiteningGains_exp[loBand] + 1 + rescale);
+              qmfBufferImag[i][hiBand] = scaleValueSaturate(
                   fMultDiv2(accu2, preWhiteningGains[loBand]),
-                  preWhiteningGains_exp[loBand] + 1);
+                  preWhiteningGains_exp[loBand] + 1 + rescale);
+            } else {
+              qmfBufferReal[i][hiBand] =
+                  SATURATE_LEFT_SHIFT(accu1, rescale, DFRACT_BITS);
+              qmfBufferImag[i][hiBand] =
+                  SATURATE_LEFT_SHIFT(accu2, rescale, DFRACT_BITS);
             }
-            qmfBufferReal[i][hiBand] = accu1;
-            qmfBufferImag[i][hiBand] = accu2;
           }
-#endif
         } else {
           FDK_ASSERT(dynamicScale >= 0);
           calc_qmfBufferReal(
               qmfBufferReal, &(lowBandReal[LPC_ORDER + startSample - 2]),
-              startSample, stopSample, hiBand, dynamicScale,
-              fMin(DFRACT_BITS - 1, (LPC_SCALE_FACTOR + dynamicScale)), a0r,
-              a1r);
+              startSample, stopSample, hiBand, dynamicScale, a0r, a1r);
         }
       } /* bw <= 0 */
 
