@@ -65,7 +65,7 @@ cc_library_static {
             "signed-integer-overflow",
             "bounds",
         ],
-        cfi: true,
+        cfi: false,
     },
     shared_libs: [
         "liblog",
